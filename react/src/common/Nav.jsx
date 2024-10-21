@@ -1,58 +1,42 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
+import { Link } from 'react-router-dom';
 import { logoutUser } from '../redux/actions/userActions';
 import ShoppingCart from './ShoppingCart';
 import { FaSearch, FaUser, FaChevronDown, FaHome, FaBars } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
+import {
+  selectCategories,
+  selectLoading as selectCategoriesLoading,
+  selectError as selectCategoriesError,
+} from '../redux/selectors/categorySelectors';
+import {
+  selectBrands,
+  selectLoading as selectBrandsLoading,
+  selectError as selectBrandsError,
+} from '../redux/selectors/brandSelectors';
 
-// Custom hook for dropdown logic
-const useDropdown = (initialState = false) => {
-  const [isOpen, setIsOpen] = useState(initialState);
-  const timeoutRef = useRef(null);
+import { useDispatch, useSelector } from 'react-redux';
 
-  const open = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setIsOpen(true);
-  }, []);
+// Removed useDropdown hook
 
-  const close = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      setIsOpen(false);
-      timeoutRef.current = null;
-    }, 100); // Delay in milliseconds
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  return [isOpen, open, close];
-};
-
-const DropdownMenu = React.memo(({ items, openDropdown, closeDropdown }) => (
+const DropdownMenu = ({ items }) => (
   <div
-    className="absolute top-full mt-2 w-40 bg-white border rounded shadow-lg"
-    onMouseEnter={openDropdown}
-    onMouseLeave={closeDropdown}
+    className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-all duration-200 absolute left-0 top-full w-64 bg-white border border-gray-200 rounded shadow-md z-50"
   >
-    <ul>
+    <div className="grid grid-cols-2 gap-4 p-4">
       {items.map((item, index) => (
-        <li
+        <Link
           key={index}
-          className="px-4 py-2 text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+          to={item.path}
+          className="text-gray-600 hover:bg-blue-50 hover:text-blue-600 text-sm p-2 rounded block text-center"
         >
-          {item}
-        </li>
+          {item.name}
+        </Link>
       ))}
-    </ul>
+    </div>
   </div>
-));
+);
+
 
 const Nav = ({ openAuthModal }) => {
   const { t, i18n } = useTranslation();
@@ -69,11 +53,11 @@ const Nav = ({ openAuthModal }) => {
   ];
 
   const [isOpen, setIsOpen] = useState(false);
-  const [isWomenDropdownOpen, openWomenDropdown, closeWomenDropdown] = useDropdown();
-  const [isMenDropdownOpen, openMenDropdown, closeMenDropdown] = useDropdown();
-  const [isPagesDropdownOpen, openPagesDropdown, closePagesDropdown] = useDropdown();
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const [isTransitionEnded, setIsTransitionEnded] = useState(false);
+
+  const categories = useSelector(selectCategories) || [];
+  const brands = useSelector(selectBrands) || [];
 
   const navRef = useRef();
 
@@ -118,6 +102,7 @@ const Nav = ({ openAuthModal }) => {
     <button onClick={openAuthModal}>{t('Sign In / Register')}</button>
   );
 
+  // Mobile dropdown state remains
   const [isMobileDropdownOpen, setIsMobileDropdownOpen] = useState({
     men: false,
     women: false,
@@ -137,68 +122,59 @@ const Nav = ({ openAuthModal }) => {
         <div className="container mx-auto px-4 py-0 max-650:py-4 flex items-center justify-between">
           <Link to={ROUTES.HOME} className="text-2xl font-bold">Ismail Bouaichi</Link>
 
+          {/* Desktop Navigation */}
           <div className="hidden lg:flex space-x-6">
-            <div 
-              className="relative cursor-pointer p-4"
-              onMouseEnter={openMenDropdown}
-              onMouseLeave={closeMenDropdown}
-            >
-              <span className="flex items-center z-50">
-                {t('Men Wear')}
-                <FaChevronDown className="ml-1 text-xs" />
-              </span>
-              {isMenDropdownOpen && (
-                <DropdownMenu
-                  items={[
-                    t('T-Shirt'), t('Casual Shirts'), t('Formal Shirts'),
-                    t('Blazers & Coats'), t('Suits'), t('Jackets')
-                  ]}
-                />
-              )}
-            </div>
+            {/* Categories Dropdown */}
+         {/* Categories Dropdown */}
+<div className="group relative cursor-pointer p-4">
+  <span className="flex items-center z-50">
+    {t('Categories')}
+    <FaChevronDown className="ml-1 text-xs" />
+  </span>
+  <DropdownMenu
+    items={categories.map((category) => ({
+      name: category.name,
+      path: `/category/${category.slug}`,
+    }))}
+  />
+</div>
 
-            <div 
-              className="relative cursor-pointer p-4"
-              onMouseEnter={openWomenDropdown}
-              onMouseLeave={closeWomenDropdown}
-            >
-              <span className="flex items-center">
-                {t('Women Wear')}
-                <FaChevronDown className="ml-1 text-xs" />
-              </span>
-              {isWomenDropdownOpen && (
-                <DropdownMenu
-                  items={[
-                    t('Dresses'), t('Jumpsuits'), t('Tops, T-Shirts & Shirts'),
-                    t('Shorts & Skirts'), t('Shrugs'), t('Blazers')
-                  ]}
-                />
-              )}
-            </div>
+{/* Brands Dropdown */}
+<div className="group relative cursor-pointer p-4">
+  <span className="flex items-center z-50">
+    {t('Brands')}
+    <FaChevronDown className="ml-1 text-xs" />
+  </span>
+  <DropdownMenu
+    items={brands.map((brand) => ({
+      name: brand.name,
+      path: `/brand/${brand.slug}`,
+    }))}
+  />
+</div>
 
-            <div 
-              className="relative cursor-pointer p-4"
-              onMouseEnter={openPagesDropdown}
-              onMouseLeave={closePagesDropdown}
-            > 
-              <span className="flex items-center">
-                {t('Pages')}
-                <FaChevronDown className="ml-1 text-xs" />
-              </span>
-              {isPagesDropdownOpen && (
-                <DropdownMenu
-                  items={[
-                    t('About Us'), t('Contact Us'), t('FAQs'),
-                  ]}
-                />
-              )}
-            </div>
+{/* Pages Dropdown */}
+<div className="group relative cursor-pointer p-4">
+  <span className="flex items-center">
+    {t('Pages')}
+    <FaChevronDown className="ml-1 text-xs" />
+  </span>
+  <DropdownMenu
+    items={[
+      { name: t('About Us'), path: '/about' },
+      { name: t('Contact Us'), path: '/contact' },
+      { name: t('FAQs'), path: '/faqs' },
+    ]}
+  />
+</div>
 
+            {/* Store Link */}
             <Link to={ROUTES.STORE} className="text-gray-600 hover:text-gray-800 p-4">
               {t('Store')}
             </Link>
           </div>
 
+          {/* Right Side Icons */}
           <div className="flex items-center space-x-4">
             <div className="relative">
               <button
@@ -231,17 +207,16 @@ const Nav = ({ openAuthModal }) => {
             </div>
           </div>
 
+          {/* Mobile Menu Toggle */}
           <div className="lg:hidden">
             <button className="navbar-burger flex items-center text-blue-600 p-3" onClick={toggleMenu}>
-              <svg className="block h-4 w-4 fill-current" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                <title>Mobile menu</title>
-                <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z"></path>
-              </svg>
+              <FaBars size={20} />
             </button>
           </div>
         </div>
       </nav>
 
+    
       <div 
         className={`navbar-menu transition-transform duration-500 ease-in-out fixed top-0 left-0 bottom-0 flex flex-col w-full py-6 px-6 overflow-y-auto z-50 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
