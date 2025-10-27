@@ -17,17 +17,25 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
      
-        ShippingZone::create(['name' => 'Marrakech', 'shipping_cost' => 0]);
-ShippingZone::create(['name' => 'Morocco', 'shipping_cost' => 17]);
-ShippingZone::create(['name' => 'International', 'shipping_cost' => 90]);
+        $categories = \App\Models\Category::factory(10)->create();
+        
+        // Create brands
+        $brands = \App\Models\Brand::factory(10)->create();
+        
+        // Create products with existing categories and brands
+        $products = \App\Models\Product::factory(50)
+            ->recycle($categories)
+            ->recycle($brands)
+            ->create();
+
+        // Add images to products
+        $products->each(function ($product) {
+            \App\Models\Image::factory(rand(1, 4))
+                ->create(['product_id' => $product->id]);
+        });
 
 
 
-    // Product::factory(100)->create()->each(function ($product) {
-    //     // For each product, generate a few images
-    //     Image::factory()->count(5)->create([
-    //         'product_id' => $product->id,
-    //     ]);
-    // });
+
     }
 }

@@ -1,7 +1,7 @@
 
 import  {  useEffect, useContext } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import Nav from './Nav'
+import Nav from './nav/Nav'
 import Home from '../component/home/Home';
 import Login from '../component/Login';
 import Register from '../component/Register';

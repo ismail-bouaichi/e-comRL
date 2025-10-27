@@ -66,7 +66,7 @@ class CartController extends Controller
         }
         
         
-        $stripe = new \Stripe\StripeClient('sk_test_51OoXr0GpFbRloXFo1L4MXy4mw18FpStW1CZHdCJLiic5nOqAoyNLXQBnhP9wXH3pB0zxjjv4pzdI1ugYyIWI3fn300HV6v4WjC');
+    $stripe = new \Stripe\StripeClient(config('services.stripe.secret'));
 
         // Retrieve cart items from the request
         $cartItems = $validateData['cart_items'];
@@ -77,8 +77,7 @@ class CartController extends Controller
             if ($product->stock_quantity < $item['quantity']) {
                 return response()->json(['error' => 'Insufficient stock for product ' . $product->name], 400);
             }
-            $totalPrice = $product->price * $item['quantity'];
-            $lineItems[] = $this->formatLineItem($product, $totalPrice, $item['quantity']);
+            $lineItems[] = $this->formatLineItem($product, $product->price, $item['quantity']);
         }
     
     
@@ -125,7 +124,7 @@ class CartController extends Controller
         ]);
     }
 
-    private function formatLineItem($product, $totalPrice, $quantity) {
+    private function formatLineItem($product, $unitPrice, $quantity) {
         return [
             'price_data' => [
                 'currency' => 'usd',
@@ -133,7 +132,7 @@ class CartController extends Controller
                     'name' => $product->name,
                     'description' => $product->description,
                 ],
-                'unit_amount' => $totalPrice,
+                'unit_amount' => (int)($unitPrice * 100), // cents per unit
             ],
             'quantity' => $quantity,
         ];

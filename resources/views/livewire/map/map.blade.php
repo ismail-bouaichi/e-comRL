@@ -1,125 +1,142 @@
-<div class="">
- <div id="map"  wire:ignore x-ref="map" style="width: 650px; height: 500px;"></div>
+<div class="space-y-4" wire:ignore>
+  <div class="flex items-center gap-2">
+    <div class="flex-1 relative">
+      <input id="map-search" type="text" placeholder="Search location..." class="w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 text-sm px-3 py-2" />
+      <ul id="map-search-results" class="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded shadow text-sm hidden max-h-60 overflow-auto"></ul>
+    </div>
+    <button id="map-locate-btn" type="button" class="px-3 py-2 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-500">Locate Me</button>
+  </div>
+  <div id="map" class="rounded border" style="width: 650px; height: 480px;"></div>
+  <div id="map-meta" class="text-xs text-gray-500 leading-relaxed"></div>
 
- 
- <script>
-    document.addEventListener('livewire:initialized', function() {
-        console.log('Livewire initialized');
-        var map;
-        var Apikey = 'AtYYJi3Am_4L9G8zblQ4pF6R_AZHZxtXCgErM3gDqjtlKKMvhWNJKF6Mtz8MPg7U';
-        var mapInitialized = false;
+  <!-- Leaflet CSS/JS (CDN) without SRI (previous integrity mismatch blocked load) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 
-        function loadMap() {
-            if (!mapInitialized && window.Microsoft && window.Microsoft.Maps && window.Microsoft.Maps.Map) {
-                mapInitialized = true;
-                var mapOptions = {
-                    credentials: Apikey,
-                    center: new window.Microsoft.Maps.Location(47.60357, -122.35565),
-                    mapTypeId: window.Microsoft.Maps.MapTypeId.road,
-                    zoom: 12
-                };
-                map = new window.Microsoft.Maps.Map(document.getElementById('map'), mapOptions);
-                window.Microsoft.Maps.Events.addHandler(map, 'click', handleMapClick);
-            }
-        }
+  <script>
+    function initLeafletMap() {
+      if (typeof L === 'undefined') {
+        // Retry shortly if script not yet parsed
+        return setTimeout(initLeafletMap, 100);
+      }
+      const mapEl = document.getElementById('map');
+      const resultsEl = document.getElementById('map-search-results');
+      const searchInput = document.getElementById('map-search');
+      const metaEl = document.getElementById('map-meta');
+      const locateBtn = document.getElementById('map-locate-btn');
 
-        function handleMapClick(e) {
-            const latitude = e.location.latitude;
-            const longitude = e.location.longitude;
+      // Initialize Leaflet map
+      const map = L.map(mapEl, { attributionControl: true }).setView([40.0, 0.0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
 
-            for (let i = map.entities.getLength() - 1; i >= 0; i--) {
-                const pushpin = map.entities.get(i);
-                if (pushpin instanceof window.Microsoft.Maps.Pushpin) {
-                    map.entities.removeAt(i);
-                }
-            }
-            const pushpin = new window.Microsoft.Maps.Pushpin(new window.Microsoft.Maps.Location(latitude, longitude), null);
-            map.entities.push(pushpin);
+      let marker = null;
+      let searchTimeout = null;
 
-            const url = `http://dev.virtualearth.net/REST/v1/Locations/${latitude},${longitude}?o=json&key=${Apikey}`;
+      function setMarker(lat, lon) {
+        if (marker) { marker.remove(); }
+        marker = L.marker([lat, lon]).addTo(map);
+      }
 
-            fetch(url)
-                .then(response => response.json())
-                .then(data => {
-                    const addressDetails = data.resourceSets[0].resources[0].address;
+      function updateMeta(text) {
+        metaEl.textContent = text || '';
+      }
 
-                    // Emit Livewire event to update component state
-                    console.log('Emitting updateAddress event');
-                    console.log('Livewire:', addressDetails);
+      function emitAddress(addrObj, lat, lon) {
+        const addressLine = addrObj.road || addrObj.neighbourhood || addrObj.suburb || addrObj.village || addrObj.town || addrObj.city || '';
+        const city = addrObj.city || addrObj.town || addrObj.village || addrObj.county || '';
+        const zipCode = addrObj.postcode || '';
+        
+        const payload = {
+          address: addressLine,
+          city: city,
+          zipCode: zipCode,
+          longitude: lon,
+          latitude: lat
+        };
+        
+        console.log('Map emitting address:', payload);
+        
+        // Try Livewire dispatch with payload object
+        Livewire.dispatch('updateAddress', [payload]);
+        
+        // Try custom Alpine.js event with object
+        window.dispatchEvent(new CustomEvent('map-location-selected', {
+          detail: payload
+        }));
+        
+        updateMeta(`${addressLine ? addressLine + ', ' : ''}${city} ${zipCode}`);
+      }
 
-                    
-                    Livewire.dispatch('updateAddress', { address: addressDetails.addressLine,
-                        city:addressDetails.adminDistrict2,
-                        zipCode:addressDetails.postalCode,
-                        longitude:longitude,
-                        latitude:latitude
-                     });
-
-               
-                     
-
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('Failed to fetch address details. Please try again.');
-                });
-        }
-
-
-        const handleSearch = (searchQuery) => {
-    if (searchManager && mapInstance.current) {
-      const searchRequest = {
-        where: searchQuery,
-        callback: function (r) {
-          if (r && r.results && r.results.length > 0) {
-            const firstResult = r.results[0];
-            mapInstance.current.setView({ bounds: firstResult.bestView });
-
-            mapInstance.current.entities.clear();
-            const pushpin = new window.Microsoft.Maps.Pushpin(firstResult.location);
-            mapInstance.current.entities.push(pushpin);
-
-            const location = firstResult.location;
-            const url = `https://dev.virtualearth.net/REST/v1/Locations/${location.latitude},${location.longitude}?o=json&key=${Apikey}`;
-
-            fetch(url)
-              .then(response => response.json())
-              .then(data => {
-                const addressDetails = data.resourceSets[0].resources[0].address;
-                Livewire.dispatch('updateAddress', { 
-                    address: addressDetails.addressLine,
-                    city:addressDetails.adminDistrict2,
-                    zipCode:addressDetails.postalCode,
-                    latitude:addressDetails.location.latitude,
-                    longitude:addressDetails.location.longitude 
-                });
-
-                console.log(location.longitude );
-              })
-              .catch(error => {
-                setError(error);
-              });
+      async function reverseGeocode(lat, lon) {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&addressdetails=1` , {
+            headers: { 'Accept': 'application/json' }
+          });
+          const data = await res.json();
+          if (data && data.address) {
+            emitAddress(data.address, lat, lon);
           }
-        },
-        errorCallback: function (e) {
-          setError(e);
+        } catch (e) { console.error(e); }
+      }
+
+      map.on('click', (e) => {
+        const { lat, lng } = e.latlng;
+        setMarker(lat, lng);
+        reverseGeocode(lat, lng);
+      });
+
+      locateBtn.addEventListener('click', () => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(pos => {
+            const { latitude, longitude } = pos.coords;
+            map.setView([latitude, longitude], 14);
+            setMarker(latitude, longitude);
+            reverseGeocode(latitude, longitude);
+          });
         }
-      };
-      searchManager.geocode(searchRequest);
+      });
+
+      async function searchPlaces(q) {
+        if (!q || q.length < 3) { resultsEl.classList.add('hidden'); resultsEl.innerHTML=''; return; }
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(q)}`);
+          const data = await res.json();
+          if (!Array.isArray(data)) { resultsEl.classList.add('hidden'); return; }
+          resultsEl.innerHTML = '';
+          data.forEach(item => {
+            const li = document.createElement('li');
+            li.className = 'px-3 py-2 hover:bg-indigo-50 cursor-pointer';
+            li.textContent = item.display_name;
+            li.addEventListener('click', () => {
+              const lat = parseFloat(item.lat); const lon = parseFloat(item.lon);
+              map.setView([lat, lon], 15);
+              setMarker(lat, lon);
+              emitAddress(item.address || {}, lat, lon);
+              resultsEl.classList.add('hidden');
+              searchInput.value = item.display_name;
+            });
+            resultsEl.appendChild(li);
+          });
+          resultsEl.classList.toggle('hidden', data.length === 0);
+        } catch (e) { console.error(e); }
+      }
+
+      searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        const value = e.target.value.trim();
+        searchTimeout = setTimeout(() => searchPlaces(value), 500);
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!resultsEl.contains(e.target) && e.target !== searchInput) {
+          resultsEl.classList.add('hidden');
+        }
+      });
     }
-  };
 
-
-        if (!window.Microsoft) {
-            var script = document.createElement('script');
-            script.src = `https://www.bing.com/api/maps/mapcontrol?callback=loadMap`;
-            script.async = true;
-            script.defer = true;
-            window.loadMap = loadMap;
-            document.body.appendChild(script);
-        } else {
-            loadMap();
-        }
-    });
-</script>
+    document.addEventListener('livewire:initialized', initLeafletMap);
+  </script>
 </div>

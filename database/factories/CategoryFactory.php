@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 use App\Models\Category;
-
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -11,16 +11,24 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 class CategoryFactory extends Factory
 {
     protected $model = Category::class;
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+
     public function definition(): array
-    {
+    {  $name = $this->faker->unique()->words(2, true);
+        $iconName = 'category-' . $this->faker->unique()->numberBetween(1, 1000) . '.jpg';
+        
+        // Generate and save the image
+        $this->faker->image(
+            storage_path('app/public/icons'),
+            400,
+            400,
+            null,
+            false
+        );
+    
         return [
-            'name' =>  $this->faker->unique()->company,
-            'icon' => 'icons/' . $this->faker->image('storage/app/public/icons', 640, 480, null, false),
+            'name' => ucwords($name),
+            'slug' => Str::slug($name),
+            'icon' => 'icons/' . $iconName,
         ];
     }
 }

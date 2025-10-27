@@ -2,7 +2,7 @@ import React, { useEffect, useContext, useState, useMemo } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
-import Nav from './Nav';
+import Nav from './nav/Nav';
 import Home from '../component/home/Home';
 import Login from '../component/Login';
 import Register from '../component/Register';

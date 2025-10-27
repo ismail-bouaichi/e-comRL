@@ -13,6 +13,9 @@ import {
   FETCH_PRODUCT_REQUEST,
   FETCH_PRODUCT_SUCCESS,
   FETCH_PRODUCT_FAILURE,
+  FETCH_BESTSELLING_PRODUCTS_FAILURE,
+  FETCH_BESTSELLING_PRODUCTS_SUCCESS,
+  FETCH_BESTSELLING_PRODUCTS_REQUEST,
 } from '../constants/productConstants';
 
 export const fetchProducts = (
@@ -84,3 +87,20 @@ export const setSelectedCategory = (category) => ({
   type: SET_SELECTED_CATEGORY,
   payload: category,
 });
+
+
+export const fetchBestSellingProducts = () => async (dispatch) => {
+  dispatch({ type: FETCH_BESTSELLING_PRODUCTS_REQUEST });
+  try {
+    const response = await axios.get('/product/mostSelling');
+    dispatch({ 
+      type: FETCH_BESTSELLING_PRODUCTS_SUCCESS, 
+      payload: response.data.data 
+    });
+  } catch (error) {
+    dispatch({ 
+      type: FETCH_BESTSELLING_PRODUCTS_FAILURE, 
+      payload: error.message 
+    });
+  }
+};

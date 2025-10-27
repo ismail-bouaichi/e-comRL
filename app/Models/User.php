@@ -95,7 +95,7 @@ class User extends Authenticatable
             $query->where('name', 'delivery_worker');
         })
         ->whereDoesntHave('assignedOrders', function ($query) {
-            $query->where('status', ['onProgress','paid']);
+            $query->whereIn('status', ['onProgress','paid']); // ✅ Fixed: Use whereIn instead of where
         })
         ->inRandomOrder()
         ->first();

@@ -51,7 +51,30 @@
                                     </td>
                                     
                                     <!-- Delivery Worker Info -->
-                                    <td class="px-4 py-3">{{ $order->deliveryWorker->name }}</td>
+                                    <td class="px-4 py-3">
+                                        @if($order->deliveryWorker)
+                                            <div class="flex flex-col">
+                                                <span class="font-medium text-gray-900 dark:text-white">
+                                                    {{ $order->deliveryWorker->user->name }}
+                                                </span>
+                                                <span class="text-xs text-gray-500 dark:text-gray-400">
+                                                    {{ ucfirst($order->deliveryWorker->vehicle_type) }} • 
+                                                    <span class="
+                                                        @if($order->deliveryWorker->status === 'available') text-green-600
+                                                        @elseif($order->deliveryWorker->status === 'on_delivery') text-blue-600
+                                                        @else text-gray-600
+                                                        @endif
+                                                    ">
+                                                        {{ ucfirst(str_replace('_', ' ', $order->deliveryWorker->status)) }}
+                                                    </span>
+                                                </span>
+                                            </div>
+                                        @else
+                                            <span class="text-yellow-600 dark:text-yellow-400 text-sm">
+                                                Not assigned
+                                            </span>
+                                        @endif
+                                    </td>
                                     
                                     <!-- Order Status -->
                                     <td class="px-4 py-3">{{ $order->status }}</td>

@@ -25,16 +25,16 @@ class OrderDetail extends Model
     {
         return $this->belongsTo(Product::class); 
     }
-    public static function bestSellingProduct()
-    {
+    // public static function bestSellingProduct()
+    // {
         
-        return Product::select('products.*', DB::raw('SUM(order_details.quantity) as total_quantity'))
-        ->join('order_details','products.id','=','order_details.product_id')
-        ->groupBy('products.id')
-        ->orderBy('total_quantity', 'desc')
-        ->with('images', 'category', 'discounts')
-        ->get();
-    }
+    //     return Product::select('products.*', DB::raw('SUM(order_details.quantity) as total_quantity'))
+    //     ->join('order_details','products.id','=','order_details.product_id')
+    //     ->groupBy('products.id')
+    //     ->orderBy('total_quantity', 'desc')
+    //     ->with('images', 'category', 'discounts')
+    //     ->get();
+    // }
 
     
 }

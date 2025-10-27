@@ -5,3 +5,6 @@ export const selectLoading = (state) => state.product.loading;
 export const selectError = (state) => state.product.error;
 export const selectPagination = (state) => state.product.pagination;
 export const selectFavorites = (state) => state.product.favorites;
+export const selectBestSellingProducts = (state) => state.product.bestSellingProducts;
+export const selectBestSellingLoading = (state) => state.product.bestSellingLoading;
+export const selectBestSellingError = (state) => state.product.bestSellingError;

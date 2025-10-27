@@ -9,7 +9,7 @@ const BingMap = ({ onLocationSelect }) => {
   const [options, setOptions] = useState([]);
   const mapInstance = useRef(null);
 
-  const Apikey = 'AtYYJi3Am_4L9G8zblQ4pF6R_AZHZxtXCgErM3gDqjtlKKMvhWNJKF6Mtz8MPg7U';
+  const Apikey = 'AueuxOEDw6oIclMWjZNYdq9zuWasrwsotuBsv7qqb4O8X7WWkEycsU2EzSQu_H3x';
 
   useEffect(() => {
     const loadMap = () => {
@@ -60,13 +60,8 @@ const BingMap = ({ onLocationSelect }) => {
       .then(response => response.json())
       .then(data => {
         const address = data.resourceSets[0].resources[0].address;
-        onLocationSelect(address.formattedAddress, address.postalCode, address.adminDistrict2,address.countryRegion,latitude,longitude);
-        console.log('Address:', address.formattedAddress);
-        console.log('Postal Code:', address.postalCode);
-        console.log('City:', address.adminDistrict2);
-        console.log('Country:', address.countryRegion);
-        console.log(latitude);
-        console.log(longitude);
+        onLocationSelect(address.formattedAddress, address.postalCode, address.adminDistrict2, address.countryRegion, latitude, longitude);
+      
 
 
 
@@ -94,7 +89,7 @@ const BingMap = ({ onLocationSelect }) => {
               .then(response => response.json())
               .then(data => {
                 const address = data.resourceSets[0].resources[0].address;
-                onLocationSelect(address.formattedAddress, address.postalCode, address.adminDistrict2,location.latitude,location.longitude);
+                onLocationSelect(address.formattedAddress, address.postalCode, address.adminDistrict2, location.latitude, location.longitude);
               })
               .catch(error => {
                 setError(error);
@@ -112,23 +107,43 @@ const BingMap = ({ onLocationSelect }) => {
   useEffect(() => {
     if (searchQuery) {
       const fetchOptions = async () => {
-        const url = `https://dev.virtualearth.net/REST/v1/Locations?q=${encodeURIComponent(searchQuery)}&key=${Apikey}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        const results = data.resourceSets[0].resources;
-        const options = results.map((result) => ({
-          value: result.address.formattedAddress,
-          label: result.address.formattedAddress,
-          small: result.address.adminDistrict2
-        }));
-        
-        const uniqueOptions = options.filter((option, index, self) =>
-          index === self.findIndex((t) => t.label === option.label)
-        );
-        
-        setOptions(uniqueOptions);
+        try {
+          const url = `https://dev.virtualearth.net/REST/v1/Locations?q=${encodeURIComponent(searchQuery)}&key=${Apikey}`;
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          // Check if the response has the expected structure
+          if (data.resourceSets && 
+              data.resourceSets.length > 0 && 
+              data.resourceSets[0].resources) {
+            const results = data.resourceSets[0].resources;
+            const options = results.map((result) => ({
+              value: result.address.formattedAddress,
+              label: result.address.formattedAddress,
+              small: result.address.adminDistrict2
+            }));
+            
+            const uniqueOptions = options.filter((option, index, self) =>
+              index === self.findIndex((t) => t.label === option.label)
+            );
+            
+            setOptions(uniqueOptions);
+          } else {
+            console.log("Empty or unexpected API response:", data);
+            setOptions([]);
+          }
+        } catch (error) {
+          console.error("Error fetching location suggestions:", error);
+          setOptions([]);
+        }
       };
-      fetchOptions();
+      
+      // Only search if query is long enough (prevents API errors for very short queries)
+      if (searchQuery.length > 2) {
+        fetchOptions();
+      } else {
+        setOptions([]);
+      }
     }
   }, [searchQuery]);
 

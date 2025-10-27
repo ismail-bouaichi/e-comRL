@@ -1,0 +1,394 @@
+"A datetime string with format `Y-m-d H:i:s`, e.g. `2018-05-23 13:43:32`."
+scalar DateTime @scalar(class: "Nuwave\\Lighthouse\\Schema\\Types\\Scalars\\DateTime")
+
+# ==================== QUERIES ====================
+type Query {
+    # Products
+    products(
+        page: Int @rules(apply: ["integer", "min:1"])
+        first: Int = 9 @rules(apply: ["integer", "min:1", "max:50"])
+        sort: String
+        searchKey: String
+        category_id: ID
+        brand_id: ID
+        selectedCategories: [String!]
+        selectedBrands: [String!]
+        minPrice: Float
+        maxPrice: Float
+    ): ProductPaginator! @field(resolver: "App\\GraphQL\\Queries\\ProductsQuery")
+    
+    product(id: ID! @eq): Product @find
+    
+    bestSellingProducts(limit: Int = 10): [BestSellingProduct!]! 
+        @field(resolver: "App\\GraphQL\\Queries\\BestSellingProductsQuery")
+    
+    searchProducts(searchKey: String!): [Product!]!
+        @field(resolver: "App\\GraphQL\\Queries\\SearchProductsQuery")
+    
+    # Categories
+    categories: [Category!]! @all
+    categoriesWithProducts: [CategoryWithCount!]!
+        @field(resolver: "App\\GraphQL\\Queries\\CategoriesWithProductsQuery")
+    
+    # Brands
+    brands: [Brand!]! @all
+    brandsWithProducts: [BrandWithCount!]!
+        @field(resolver: "App\\GraphQL\\Queries\\BrandsWithProductsQuery")
+    
+    # Orders
+    order(id: ID! @eq): Order @find @guard
+    orders(customer_id: ID @eq): [Order!]! @paginate(defaultCount: 10) @guard
+    orderHistory(userId: ID!): [OrderGroup!]!
+        @field(resolver: "App\\GraphQL\\Queries\\OrderHistoryQuery") @guard
+    
+    # Delivery Tracking
+    deliveryWorker(id: ID! @eq): DeliveryWorker @find @guard
+    deliveryWorkers(status: String): [DeliveryWorker!]! @all @guard
+    myDeliveryWorkerProfile: DeliveryWorker @guard
+        @field(resolver: "App\\GraphQL\\Queries\\MyDeliveryWorkerProfileQuery")
+    orderTracking(order_id: ID!): OrderTrackingPayload! @guard
+        @field(resolver: "App\\GraphQL\\Queries\\OrderTrackingQuery")
+    deliveryLocationHistory(order_id: ID!, limit: Int = 100): [DeliveryLocation!]! @guard
+        @field(resolver: "App\\GraphQL\\Queries\\DeliveryLocationHistoryQuery")
+    
+    # Auth
+    me: User @auth
+}
+
+# ==================== MUTATIONS ====================
+type Mutation {
+    # Auth
+    login(email: String!, password: String!): AuthPayload!
+        @field(resolver: "App\\GraphQL\\Mutations\\LoginMutation")
+    
+    register(input: RegisterInput!): AuthPayload!
+        @field(resolver: "App\\GraphQL\\Mutations\\RegisterMutation")
+    
+    logout: LogoutResponse! @guard
+        @field(resolver: "App\\GraphQL\\Mutations\\LogoutMutation")
+    
+    # Orders
+    createOrder(input: CreateOrderInput!): OrderPayload! @guard
+        @field(resolver: "App\\GraphQL\\Mutations\\CreateOrderMutation")
+    
+    cancelOrder(order_id: ID!): CancelOrderPayload! @guard
+        @field(resolver: "App\\GraphQL\\Mutations\\CancelOrderMutation")
+    
+    # Delivery Tracking
+    updateDeliveryWorkerStatus(input: UpdateDeliveryWorkerStatusInput!): DeliveryWorker! @guard
+        @field(resolver: "App\\GraphQL\\Mutations\\UpdateDeliveryWorkerStatusMutation")
+    
+    assignDeliveryWorker(input: AssignDeliveryWorkerInput!): Order! @guard
+        @field(resolver: "App\\GraphQL\\Mutations\\AssignDeliveryWorkerMutation")
+    
+    saveDeliveryLocation(input: SaveDeliveryLocationInput!): DeliveryLocation! @guard
+        @field(resolver: "App\\GraphQL\\Mutations\\SaveDeliveryLocationMutation")
+
+}
+
+# ==================== TYPES ====================
+
+type User {
+    id: ID!
+    name: String!
+    email: String!
+    role: Role @belongsTo
+    orders: [Order!]! @hasMany
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type Role {
+    id: ID!
+    name: String!
+}
+
+type Product {
+    id: ID!
+    name: String!
+    description: String
+    price: Float!
+    stock_quantity: Int!
+    category: Category @belongsTo
+    brand: Brand @belongsTo
+    images: [Image!]! @hasMany
+    ratings: [Rating!]! @hasMany
+    avg_rating: Float
+    ratings_count: Int
+    is_discounted: Boolean
+    discounted_price: Float
+    discount_name: String
+    discount_code: String
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type BestSellingProduct {
+    id: ID!
+    name: String!
+    price: Float!
+    category: CategoryBasic!
+    brand: BrandBasic!
+    image: ImageBasic
+    is_discounted: Boolean!
+    discounted_price: Float
+}
+
+type Category {
+    id: ID!
+    name: String!
+    icon: String
+    products: [Product!]! @hasMany
+}
+
+type CategoryWithCount {
+    id: ID!
+    name: String!
+    icon: String
+    products_count: Int!
+}
+
+type CategoryBasic {
+    id: ID!
+    name: String!
+}
+
+type Brand {
+    id: ID!
+    name: String!
+    slug: String
+    logo_path: String
+    logo: String @rename(attribute: "logo_path")
+    description: String
+    products_count: Int @count(relation: "products")
+    products: [Product!]! @hasMany
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type BrandWithCount {
+    id: ID!
+    name: String!
+    logo_path: String
+    products_count: Int!
+}
+
+type BrandBasic {
+    id: ID!
+    name: String!
+}
+
+type Image {
+    id: ID!
+    product_id: ID!
+    file_path: String!
+}
+
+type ImageBasic {
+    file_path: String!
+}
+
+type Rating {
+    id: ID!
+    rating: Float!
+    comment: String
+    user: User @belongsTo
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type Order {
+    id: ID!
+    first_name: String!
+    last_name: String!
+    email: String!
+    phone: String!
+    status: String!
+    session_id: String
+    shipping_cost: Float
+    latitude: Float
+    longitude: Float
+    customer: User @belongsTo(relation: "customer")
+    delivery_worker_id: ID
+    deliveryWorker: DeliveryWorker @belongsTo(relation: "deliveryWorker")
+    delivery_started_at: DateTime
+    delivery_completed_at: DateTime
+    deliveryLocations: [DeliveryLocation!]! @hasMany
+    latestDeliveryLocation: DeliveryLocation
+    orderDetails: [OrderDetail!]! @hasMany
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type OrderDetail {
+    id: ID!
+    order_id: ID!
+    product: Product @belongsTo
+    quantity: Int!
+    total_price: Float!
+    address: String!
+    city: String!
+    zip_code: String!
+}
+
+type DeliveryWorker {
+    id: ID!
+    user_id: ID!
+    user: User @belongsTo
+    phone: String
+    vehicle_type: String!
+    status: String!
+    current_order_id: ID
+    currentOrder: Order @belongsTo(relation: "currentOrder")
+    orders: [Order!]! @hasMany
+    locations: [DeliveryLocation!]! @hasMany
+    latestLocation: DeliveryLocation
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type DeliveryLocation {
+    id: ID!
+    order_id: ID!
+    delivery_worker_id: ID!
+    order: Order @belongsTo
+    deliveryWorker: DeliveryWorker @belongsTo
+    latitude: Float!
+    longitude: Float!
+    accuracy: Float
+    speed: Float
+    heading: Float
+    timestamp: DateTime!
+    created_at: DateTime!
+    updated_at: DateTime!
+}
+
+type OrderGroup {
+    order_id: ID!
+    status: String!
+    order_date: DateTime!
+    products: [OrderProduct!]!
+    subtotal: Float!
+    shipping: Float!
+    total: Float!
+    shipping_address: ShippingAddress!
+    note: String
+}
+
+type OrderProduct {
+    name: String!
+    quantity: Int!
+    total: Float!
+}
+
+type ShippingAddress {
+    city: String!
+    address: String!
+    zip_code: String!
+}
+
+type CartItem {
+    id: ID!
+    product: Product!
+    quantity: Int!
+}
+
+# ==================== PAYLOADS ====================
+
+type AuthPayload {
+    access_token: String!
+    token_type: String!
+    user: User!
+}
+
+type OrderPayload {
+    message: String!
+    stripe_url: String!
+    session_id: String!
+}
+
+type CancelOrderPayload {
+    message: String!
+}
+
+type RemoveCartPayload {
+    message: String!
+}
+
+type LogoutResponse {
+    message: String!
+}
+
+type OrderTrackingPayload {
+    order: Order!
+    deliveryWorker: DeliveryWorker
+    latestLocation: DeliveryLocation
+    locationHistory: [DeliveryLocation!]!
+}
+
+# ==================== INPUTS ====================
+
+input RegisterInput {
+    name: String! @rules(apply: ["required", "string", "max:255"])
+    email: String! @rules(apply: ["required", "email", "unique:users,email"])
+    password: String! @rules(apply: ["required", "min:8", "confirmed"])
+    password_confirmation: String!
+}
+
+input CreateOrderInput {
+    first_name: String! @rules(apply: ["required"])
+    last_name: String! @rules(apply: ["required"])
+    email: String! @rules(apply: ["required", "email"])
+    phone: String! @rules(apply: ["required"])
+    customer_id: ID! @rules(apply: ["required"])
+    products: [OrderProductInput!]! @rules(apply: ["required", "min:1"])
+    address: String! @rules(apply: ["required"])
+    zip_code: String! @rules(apply: ["required"])
+    city: String! @rules(apply: ["required"])
+    country: String! @rules(apply: ["required"])
+    latitude: Float
+    longitude: Float
+}
+
+input OrderProductInput {
+    product_id: ID! @rules(apply: ["required", "exists:products,id"])
+    quantity: Int! @rules(apply: ["required", "integer", "min:1"])
+}
+
+input UpdateDeliveryWorkerStatusInput {
+    delivery_worker_id: ID! @rules(apply: ["required", "exists:delivery_workers,id"])
+    status: String! @rules(apply: ["required", "in:available,on_delivery,offline"])
+}
+
+input AssignDeliveryWorkerInput {
+    order_id: ID! @rules(apply: ["required", "exists:orders,id"])
+    delivery_worker_id: ID! @rules(apply: ["required", "exists:delivery_workers,id"])
+}
+
+input SaveDeliveryLocationInput {
+    order_id: ID! @rules(apply: ["required", "exists:orders,id"])
+    delivery_worker_id: ID! @rules(apply: ["required", "exists:delivery_workers,id"])
+    latitude: Float! @rules(apply: ["required", "numeric"])
+    longitude: Float! @rules(apply: ["required", "numeric"])
+    accuracy: Float @rules(apply: ["numeric", "min:0"])
+    speed: Float @rules(apply: ["numeric", "min:0"])
+    heading: Float @rules(apply: ["numeric", "min:0", "max:360"])
+}
+
+# ==================== PAGINATION ====================
+
+type ProductPaginator {
+    data: [Product!]!
+    paginatorInfo: PaginatorInfo!
+}
+
+type PaginatorInfo {
+    count: Int!
+    currentPage: Int!
+    firstItem: Int
+    hasMorePages: Boolean!
+    lastItem: Int
+    lastPage: Int!
+    perPage: Int!
+    total: Int!
+}

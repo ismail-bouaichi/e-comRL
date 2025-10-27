@@ -86,3 +86,14 @@
   -webkit-appearance: none;
   margin: 0;
 }
+.swiper-button-next,
+.swiper-button-prev {
+  color: #000;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 20px;
+  border-radius: 50%;
+}
+
+.swiper-pagination-bullet-active {
+  background: #000;
+}

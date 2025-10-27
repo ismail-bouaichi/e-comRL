@@ -3,20 +3,25 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\User;
-
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Discount;
 use Stripe\StripeClient;
 use App\Models\OrderDetail;
+use App\Models\DeliveryWorker;
 use Illuminate\Http\Request;
 use App\Mail\OrderSuccessEmail;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use App\Models\ShippingZone;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use App\Actions\Payment\CreateStripeCheckoutAction;
+use App\Actions\Payment\ProcessWebhookAction;
+use App\Actions\Payment\RefundPaymentAction;
+use App\Actions\Payment\VerifyPaymentAction;
 
 
 
@@ -43,7 +48,7 @@ class OrderController extends Controller
      */
   
     
-    public function store(Request $request)
+    public function store(Request $request, CreateStripeCheckoutAction $createCheckout)
     {
         $validatedData = $request->validate([
             'first_name' => 'required',
@@ -58,91 +63,58 @@ class OrderController extends Controller
             'zip_code' => 'required',
             'city' => 'required',
             'country' => 'required',
-            
         ]);
     
-        // Find an available delivery worker
-        $deliveryWorker = User::findAvailableDeliveryWorker();
-
-    
-        if (!$deliveryWorker) {
-            return response()->json(['message' => 'No available delivery worker. Please try again later.'], 500);
-        }
-        
-        $stripe = new \Stripe\StripeClient('sk_test_51OoXr0GpFbRloXFo1L4MXy4mw18FpStW1CZHdCJLiic5nOqAoyNLXQBnhP9wXH3pB0zxjjv4pzdI1ugYyIWI3fn300HV6v4WjC');
-    
-        $lineItems = [];     
+        // Validate stock availability
         foreach ($validatedData['products'] as $item) {
-            $product = Product::findOrFail($item['product_id']);
-          
-            // Check stock quantity
+            $product = Product::lockForUpdate()->findOrFail($item['product_id']);
             if ($product->stock_quantity < $item['quantity']) {
                 return response()->json(['error' => 'Insufficient stock for product ' . $product->name], 400);
             }
-          
-            // $discountedPrice = $this->getDiscountedPrice($product, $item['quantity']);
-
-            $unitPrice = $this->getDiscountedPrice($product, 1);
-          
-            $product->decrement('stock_quantity', $item['quantity']);
-          
-            $lineItems[] = $this->formatLineItem($product, $unitPrice, $item['quantity']);
         }
     
-        try {
-            // Create a new Stripe Checkout session
-            $checkout_session = $stripe->checkout->sessions->create([
-                'payment_method_types' => ['card'],
-                'line_items' => $lineItems,
-                'mode' => 'payment',
-                'success_url' => route('checkout.success', [], true) . "?session_id={CHECKOUT_SESSION_ID}",
-                'cancel_url' => route('checkout.failed', [], true),
-                
-            ]);
-        } catch (\Stripe\Exception\ApiErrorException $e) {
-            return response()->json(['error' => 'Stripe API error: ' . $e->getMessage()], 500);
-        }
-
-        $shippingCost = ShippingZone::calculateShipping($validatedData['city'], $validatedData['country']);
-
-        $lineItems[] = [
-            'price_data' => [
-                'currency' => 'usd',
-                'product_data' => [
-                    'name' => 'Shipping',
-                    'description' => 'Shipping cost',
-                ],
-                'unit_amount' => $shippingCost * 100, // Convert to cents
-            ],
-            'quantity' => 1,
-        ];
-        $checkout_session = $stripe->checkout->sessions->create([
-            'payment_method_types' => ['card'],
-            'line_items' => $lineItems,
-            'mode' => 'payment',
-            'success_url' => route('checkout.success', [], true) . "?session_id={CHECKOUT_SESSION_ID}",
-            'cancel_url' => route('checkout.failed', [], true),
-        ]);
+        // Optional: Try to find an available delivery worker (not required at order creation)
+        $deliveryWorker = DeliveryWorker::where('status', 'available')
+            ->whereNull('current_order_id')
+            ->first();
     
         DB::beginTransaction();
         try {
+            // Create order first (delivery_worker_id can be null, will be assigned later)
             $order = Order::create([
                 'first_name' => $validatedData['first_name'],
                 'last_name' => $validatedData['last_name'],
                 'email' => $validatedData['email'],
                 'phone' => $validatedData['phone'],
                 'customer_id' => $validatedData['customer_id'],
-                'delivery_worker_id' => $deliveryWorker->id,
-                'session_id' => $checkout_session->id,
-                'shipping_cost' => $shippingCost,
-                'latitude'=>$request->latitude
-                , 'longitude'=>$request->longitude
+                'delivery_worker_id' => $deliveryWorker ? $deliveryWorker->id : null,
+                'latitude' => $request->latitude,
+                'longitude' => $request->longitude,
             ]);
     
+            // Create Stripe checkout session
+            try {
+                $checkoutResult = $createCheckout->execute(
+                    $order,
+                    $validatedData['products'],
+                    $validatedData['city'],
+                    $validatedData['country']
+                );
+            } catch (\Stripe\Exception\ApiErrorException $e) {
+                DB::rollBack();
+                return response()->json(['error' => 'Stripe API error: ' . $e->getMessage()], 500);
+            }
+    
+            // Update order with session and shipping
+            $order->update([
+                'session_id' => $checkoutResult['session']->id,
+                'shipping_cost' => $checkoutResult['shipping_cost'],
+            ]);
+    
+            // Create order details
             foreach ($validatedData['products'] as $item) {
                 $product = Product::findOrFail($item['product_id']);
-    
-                $discountedPrice = $this->getDiscountedPrice($product, $item['quantity']);  
+                $discountedPrice = $this->getDiscountedPrice($product, $item['quantity']);
     
                 OrderDetail::create([
                     'order_id' => $order->id,
@@ -157,6 +129,15 @@ class OrderController extends Controller
     
             DB::commit();
     
+            // If a delivery worker was auto-assigned, update their status
+            if ($deliveryWorker) {
+                $deliveryWorker->update([
+                    'status' => 'on_delivery',
+                    'current_order_id' => $order->id,
+                ]);
+            }
+    
+            // Notify admins
             $admins = User::whereHas('role', function ($query) {
                 $query->where('name', 'admin');
             })->get();
@@ -164,25 +145,36 @@ class OrderController extends Controller
             foreach ($admins as $admin) {
                 $notification = new \MBarlow\Megaphone\Types\Important(
                     'New Order Placed',
-                    'A new order has been placed by ' . $validatedData['first_name'] .$validatedData['last_name']. '.',
-                    'http://127.0.0.1:8000/orders/'. $order->id,
+                    'A new order has been placed by ' . $validatedData['first_name'] . ' ' . $validatedData['last_name'] . '.',
+                    'http://127.0.0.1:8000/orders/' . $order->id,
                 );
                 $admin->notify($notification);
             }
     
-            $qrCodeData = "order/{$order->id}/customer/{$order->first_name} {$order->last_name} /date/{$order->created_at}";
+            // Notify delivery worker if assigned
+            if ($deliveryWorker && $deliveryWorker->user) {
+                $workerNotification = new \MBarlow\Megaphone\Types\Important(
+                    'New Delivery Assignment',
+                    'You have been assigned to deliver order #' . $order->id,
+                    'http://127.0.0.1:8000/orders/' . $order->id,
+                );
+                $deliveryWorker->user->notify($workerNotification);
+            }
+    
+            // Generate and send QR code email
+            $qrCodeData = "order/{$order->id}/customer/{$order->first_name} {$order->last_name}/date/{$order->created_at}";
             $qrCode = QrCode::size(300)->generate($qrCodeData);
             $qrCodeBase64 = base64_encode($qrCode);
-            // Send the email
+            
             Mail::to($validatedData['email'])->send(new OrderSuccessEmail([
                 'name' => $validatedData['first_name'],
                 'qrCode' => $qrCodeBase64
             ]));
     
             return response()->json([
-                'message' => 'Your Order has been passed Successfully',
-                'stripe_url' => $checkout_session->url,
-                'session_id' => $checkout_session->id
+                'message' => 'Your Order has been initiated. Complete payment to confirm.',
+                'stripe_url' => $checkoutResult['session']->url,
+                'session_id' => $checkoutResult['session']->id
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -204,27 +196,7 @@ class OrderController extends Controller
         }
     
         return $price * $quantity;
-   
     }
-    
-    
-    
-     private function formatLineItem($product, $unitPrice, $quantity)
-     
-     {
-        $unitPriceInCents = $unitPrice * 100;
-            return [
-                'price_data' => [
-                'currency' => 'usd',
-                'product_data' => [
-                    'name' => $product->name,
-                    'description' => $product->description,
-                ],
-                'unit_amount' => $unitPriceInCents, 
-                ],
-                'quantity' => $quantity,
-            ];
-         }
 
     public function calculateShipping(Request $request)
             {
@@ -238,27 +210,26 @@ class OrderController extends Controller
                 return response()->json(['shippingCost' => $shippingCost]);
             }
                 
-    public function success(Request $request)
+    public function success(Request $request, VerifyPaymentAction $verifyPayment)
     {
-        
         try {
             $sessionId = $request->query('session_id');
-            $stripe = new \Stripe\StripeClient('sk_test_51OoXr0GpFbRloXFo1L4MXy4mw18FpStW1CZHdCJLiic5nOqAoyNLXQBnhP9wXH3pB0zxjjv4pzdI1ugYyIWI3fn300HV6v4WjC');
- 
-            $session = $stripe->checkout->sessions->retrieve($sessionId);
-            $order = Order::where('session_id', $sessionId)->first();
-            if (!$session || !$order) {
-                throw new NotFoundHttpException;
-            }
-            $order->status="paid";
-    
             
-            $order->save();
-    
-            // Return a success response
-            return redirect('http://localhost:3000/confirmed?id='.$sessionId);
+            if (!$sessionId) {
+                return redirect('http://localhost:3000/failed');
+            }
+            
+            $result = $verifyPayment->execute($sessionId);
+            
+            if (!$result['success']) {
+                Log::error('Payment verification failed: ' . $result['message']);
+                return redirect('http://localhost:3000/failed');
+            }
+            
+            return redirect('http://localhost:3000/confirmed?id=' . $sessionId);
         } catch (\Throwable $th) {
-            throw $th; 
+            Log::error('Payment success error: ' . $th->getMessage());
+            return redirect('http://localhost:3000/failed');
         }
     }
     public function generateQrCode(Request $request)
@@ -281,85 +252,46 @@ class OrderController extends Controller
         return redirect('http://localhost:3000/failed');
     }
     
-       public function cancel(Request $request)
+    public function cancel(Request $request, RefundPaymentAction $refundPayment)
     {
         $validatedData = $request->validate([
             'order_id' => 'required|exists:orders,id',
         ]);
     
         $order = Order::find($validatedData['order_id']);
-    
-        if ($order->status === 'canceled') {
-            return response()->json(['message' => 'Order is already canceled.'], 400);
-        }
-    
-        if ($order->status === 'paid') {
-           
-            try {
-                $stripe = new StripeClient(env('STRIPE_SECRET'));
-                $refund = $stripe->refunds->create([
-                    'payment_intent' => $order->session_id,
-                ]);
-    
-                if ($refund->status !== 'succeeded') {
-                    return response()->json(['message' => 'Failed to process refund. Please try again.'], 500);
-                }
-            } catch (\Stripe\Exception\ApiErrorException $e) {
-                return response()->json(['message' => 'Stripe API error: ' . $e->getMessage()], 500);
-            }
-        }
-    
-        $order->status = 'canceled';
-        $order->save();
-    
-        $orderDetails = $order->orderDetails;
-        foreach ($orderDetails as $orderDetail) {
-            $product = Product::find($orderDetail->product_id);
-            $product->increment('stock_quantity', $orderDetail->quantity);
-        }
-    
-        return response()->json(['message' => 'Order has been canceled and payment refunded successfully.'], 200);
+        $result = $refundPayment->execute($order);
+        
+        return response()->json([
+            'message' => $result['message']
+        ], $result['code']);
     }
     
-    public function webhook()
-    {
+    // ✅ Webhook: The source of truth for payment status
+    public function webhook(Request $request, ProcessWebhookAction $processWebhook) {
+        $signature = $request->header('Stripe-Signature');
         
-        $endpoint_secret = 'whsec_5270383984d1ba5c82a0ecf0094ed586e7763d93fb2f9808c1c46b6cd8536415';
-
-        $payload = @file_get_contents('php://input');
-        $sig_header = $_SERVER['HTTP_STRIPE_SIGNATURE'];
-        $event = null;
-
         try {
+            // ✅ Verify Stripe signature for security
             $event = \Stripe\Webhook::constructEvent(
-                $payload,
-                 $sig_header, 
-                 $endpoint_secret
+                $request->getContent(),
+                $signature,
+                config('services.stripe.webhook_secret')
             );
-        } catch (\UnexpectedValueException $e) {
-            // Invalid payload
-            return response('', 400);
-        } catch (\Stripe\Exception\SignatureVerificationException $e) {
-            // Invalid signature
-            return response('', 400);
-        }
-
-// Handle the event
-        switch ($event->type) {
-            case 'checkout.session.completed':
+            
+            if ($event->type === 'checkout.session.completed') {
                 $session = $event->data->object;
-                $order = Order::where('session_id', $session->id)->first();
-                if ($order && $order->status === 'unpaid') {
-                    $order->status = 'paid';
-                    $order->save();
-                }
-
-            // ... handle other event types
-            default:
-                echo 'Received unknown event type ' . $event->type;
+                $result = $processWebhook->execute($session->id);
+                
+                return response()->json([
+                    'message' => $result['message']
+                ], $result['code']);
+            }
+            
+            return response()->json(['message' => 'Webhook handled'], 200);
+        } catch (\Exception $e) {
+            Log::error('Webhook error: ' . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 400);
         }
-
-        return response('');
     }
     
     

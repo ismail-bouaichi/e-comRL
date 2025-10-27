@@ -12,18 +12,26 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 class ImageFactory extends Factory
 {
     protected $model = Image::class;
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+
     public function definition(): array
     {
-        return [
-            'product_id' => Product::factory(),
-            'file_path' => 'images/' . $this->faker->image('storage/app/public/images', 640, 480, null, false),
-            'title' => $this->faker->word,
-            'description' => $this->faker->sentence,
-        ];
+        $imageName = 'product-' . $this->faker->unique()->numberBetween(1, 1000) . '.jpg';
+    
+    // Generate and save the image
+    $this->faker->image(
+        storage_path('app/public/images'),
+        640,
+        480,
+        null,
+        false
+    );
+
+    return [
+        'product_id' => Product::factory(),
+        'file_path' => 'images/' . $imageName,
+        'title' => $this->faker->words(3, true),
+        'description' => $this->faker->sentence(),
+    ];
     }
 }
+

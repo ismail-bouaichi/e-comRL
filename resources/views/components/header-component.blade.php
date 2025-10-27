@@ -1,5 +1,5 @@
 <!-- resources/views/components/header-component.blade.php -->
-<div class="flex items-center justify-between p-6 text-white max-w-6xl mx-auto my-5">
+<div class="flex items-center justify-between p-6 text-white max-w-6xl mx-auto my-2">
     <div class="text-gray-400">
         @foreach ($breadcrumb as $item)
             <a href="{{ $item['url'] }}" class="hover:text-white">{{ $item['label'] }}</a>

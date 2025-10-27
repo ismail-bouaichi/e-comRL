@@ -12,7 +12,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Brand;
 use App\Models\OrderDetail;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use App\Actions\Product\CalculateProductDiscountAction;
+use App\Actions\Product\GetBestSellingProductsAction;
+use App\Actions\Product\SearchProductsAction;
+use App\Actions\Product\GetProductDetailsAction;
 
 
 class ProductController extends Controller
@@ -85,29 +90,13 @@ class ProductController extends Controller
             return $query->paginate(9, ['*'], 'page', $page);
         });
     
-            // Transform products to include discount information
-            $products->getCollection()->transform(function ($product) {
-                // Include discount information
-                $product->discounted_price = $product->price;
-                $currentDiscount = $product->currentDiscount();
+        // Transform products to include discount information
+        $discountAction = new CalculateProductDiscountAction();
+        $products->getCollection()->transform(function ($product) use ($discountAction) {
+            return $discountAction->execute($product);
+        });
     
-                if ($currentDiscount) {
-                    if ($currentDiscount->discount_type === 'percentage') {
-                        $product->discounted_price = $product->price * (1 - $currentDiscount->discount_value / 100);
-                    } else {
-                        $product->discounted_price = $product->price - $currentDiscount->discount_value;
-                    }
-                    $product->is_discounted = true;
-                    $product->discount_name = $currentDiscount->name;
-                    $product->discount_code = $currentDiscount->code;
-                } else {
-                    $product->is_discounted = false;
-                }
-    
-                return $product;
-            });
-    
-            return response()->json($products);
+        return response()->json($products);
     
        
     }
@@ -115,80 +104,71 @@ class ProductController extends Controller
     
     public function category()
     {
-        $categories = Cache::remember('categories_with_products', 600, function() {
-            return Category::has('products')
-                ->select('id', 'name')
-                ->get();
-        });
+        try {
+            $categories = Cache::remember('categories_with_products', 600, function() {
+                return Category::query()
+                    ->select([
+                        'categories.id',
+                        'categories.name',
+                        'categories.icon',
+                        DB::raw('COUNT(products.id) as products_count')
+                    ])
+                    ->leftJoin('products', 'categories.id', '=', 'products.category_id')
+                    ->groupBy('categories.id', 'categories.name', 'categories.icon')
+                    ->having('products_count', '>', 0)
+                    ->get();
+            });
     
-        return response()->json($categories);
+            return response()->json($categories);
+    
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed to fetch categories'], 500);
+        }
     }
-
+    
     public function brand()
     {
-        $brands = Cache::remember('brands_with_products', 600, function() {
-            return Brand::has('products')
-                ->select('id', 'name','logo_path')
-                ->get();
-        });
-    
-        return response()->json($brands);
-    }
-
-    public function bestSellingProduct()
-    {
         try {
-            $bestsellingPrd = Cache::remember('best_selling_products', 600, function() {
-                return Product::with(['images:id,product_id,file_path', 'category:id,name', 'discounts'])
-                    ->withSum('orderDetails', 'quantity')
-                    ->orderBy('order_details_sum_quantity', 'desc')
-                    ->take(10) // Limit to top 10 products
-                    ->get(['id', 'name', 'price', 'category_id', 'brand_id']);
+            $brands = Cache::remember('brands_with_products', 600, function() {
+                return Brand::query()
+                    ->select([
+                        'brands.id',
+                        'brands.name',
+                        'brands.logo_path',
+                        DB::raw('COUNT(products.id) as products_count')
+                    ])
+                    ->leftJoin('products', 'brands.id', '=', 'products.brand_id')
+                    ->groupBy('brands.id', 'brands.name', 'brands.logo_path')
+                    ->having('products_count', '>', 0)
+                    ->get();
             });
-
-            $bestsellingPrd->transform(function ($product) {
-                $productDiscount = $product->currentDiscount();
-
-                if ($productDiscount) {
-                    $product->is_discounted = true;
-                    if ($productDiscount->discount_type === 'percentage') {
-                        $product->discounted_price = $product->price * (1 - $productDiscount->discount_value / 100);
-                    } else {
-                        $product->discounted_price = $product->price - $productDiscount->discount_value;
-                    }
-                    $product->discount_name = $productDiscount->name;
-                    $product->discount_code = $productDiscount->code;
-                } else {
-                    $product->is_discounted = false;
-                }
-                
-                return $product;
-            });
-
-            return response()->json($bestsellingPrd);
+    
+            return response()->json($brands);
+    
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Server Error'], 500);
+            return response()->json(['error' => 'Failed to fetch brands'], 500);
         }
     }
 
-    // public function priceAscending(Request $request)
-    // {
-    //     $products = Product::with(['images:id,product_id,file_path', 'category:id,name', 'brand:id,name'])
-    //                         ->orderBy('price', 'asc')
-    //                         ->paginate(20); // 20 products per page
-    
-    //     return response()->json($products);
-    // }
-    
-    // public function priceDescending(Request $request)
-    // {
-    //     $products = Product::with(['images:id,product_id,file_path', 'category:id,name', 'brand:id,name'])
-    //                         ->orderBy('price', 'desc')
-    //                         ->paginate(20); // 20 products per page
-    
-    //     return response()->json($products);
-    // }
+    public function bestSellingProduct(GetBestSellingProductsAction $getBestSelling)
+    {
+        try {
+            $products = $getBestSelling->execute(10);
+            
+            return response()->json([
+                'data' => $products,
+                'cached_at' => now()->toIso8601String()
+            ]);
+        } catch (\Exception $e) {
+            Log::error('BestSelling Products Error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Server Error',
+                'message' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
 
+   
     public function selectProductBestRating(Request $request)
     {
         $products = Product::with(['images:id,product_id,file_path', 'category:id,name', 'brand:id,name'])
@@ -199,112 +179,29 @@ class ProductController extends Controller
         return response()->json($products);
     }
 
-    public function search(Request $request)
-{
-    try {
-        $key = $request->searchKey;
-
-        
-        $cacheKey = "search_{$key}";
-
-       
-        $products = Cache::remember($cacheKey, 600, function() use ($key) {
-            return Product::with(['images', 'category', 'discounts', 'brand'])
-                         ->search($key)
-                            ->get();
-        });
-
-        $products->transform(function ($product) {
-            $productDiscount = $product->currentDiscount();
-
-            if ($productDiscount) {
-                $product->is_discounted = true;
-                if ($productDiscount->discount_type === 'percentage') {
-                    $product->discounted_price = $product->price * (1 - $productDiscount->discount_value / 100);
-                } else {
-                    $product->discounted_price = $product->price - $productDiscount->discount_value;
-                }
-                $product->discount_name = $productDiscount->name;
-                $product->discount_code = $productDiscount->code;
-            } else {
-                $product->is_discounted = false;
-            }
-
-            return $product;
-        });
-
-        return response()->json($products);
-
-    } catch (\Exception $exception) {
-        return response(['message' => $exception->getMessage()], 400);
-    }
-}
-
-
-
-public function show($id)
-{
-    try {
-        $product = Product::with(['images', 'category', 'brand'])
-            ->withAvg('ratings as avg_rating', 'rating')
-            ->withCount('ratings')
-            ->find($id);
-
-        if (!$product) {
-            return response()->json(['error' => 'Product not found'], 404);
+    public function search(Request $request, SearchProductsAction $searchProducts)
+    {
+        try {
+            $key = $request->searchKey;
+            $products = $searchProducts->execute($key);
+            
+            return response()->json($products);
+        } catch (\Exception $exception) {
+            return response(['message' => $exception->getMessage()], 400);
         }
-
-        
-        $product->avg_rating = number_format($product->avg_rating, 1);
-
-        $relatedByCategory = Product::where('category_id', $product->category_id)
-            ->where('id', '!=', $product->id)
-            ->with(['images', 'category', 'brand'])
-            ->withAvg('ratings as avg_rating', 'rating')
-            ->withCount('ratings')
-            ->limit(5)
-            ->get();
-
-        $relatedByBrand = Product::where('brand_id', $product->brand_id)
-            ->where('id', '!=', $product->id)
-            ->with(['images', 'category', 'brand'])
-            ->withAvg('ratings as avg_rating', 'rating')
-            ->withCount('ratings')
-            ->limit(5)
-            ->get();
-
-        // Format ratings for related products
-        $relatedByCategory->each(function ($product) {
-            $product->avg_rating = number_format($product->avg_rating, 1);
-        });
-
-        $relatedByBrand->each(function ($product) {
-            $product->avg_rating = number_format($product->avg_rating, 1);
-        });
-
-        $currentDiscount = $product->currentDiscount();
-
-        if ($currentDiscount) {
-            $product->is_discounted = true;
-            if ($currentDiscount->discount_type === 'percentage') {
-                $product->discounted_price = $product->price * (1 - $currentDiscount->discount_value / 100);
-            } else {
-                $product->discounted_price = $product->price - $currentDiscount->discount_value;
-            }
-            $product->discount_name = $currentDiscount->name;
-            $product->discount_code = $currentDiscount->code;
-        } else {
-            $product->is_discounted = false;
-        }
-
-        return response()->json([
-            'product' => $product,
-            'relatedByCategory' => $relatedByCategory,
-            'relatedByBrand' => $relatedByBrand
-        ]);
-    } catch (\Exception $e) {
-        return response()->json(['error' => 'Internal server error'], 500);
     }
-}
+
+
+
+    public function show($id, GetProductDetailsAction $getProductDetails)
+    {
+        try {
+            $result = $getProductDetails->execute($id);
+            return response()->json($result);
+        } catch (\Exception $e) {
+            $statusCode = $e->getMessage() === 'Product not found' ? 404 : 500;
+            return response()->json(['error' => $e->getMessage()], $statusCode);
+        }
+    }
   
 }

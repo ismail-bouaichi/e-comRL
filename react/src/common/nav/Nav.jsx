@@ -1,41 +1,22 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { logoutUser } from '../redux/actions/userActions';
-import ShoppingCart from './ShoppingCart';
+import { logoutUser } from '../../redux/actions/userActions';
+import ShoppingCart from '../ShoppingCart';
 import { FaSearch, FaUser, FaChevronDown, FaHome, FaBars } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import {
   selectCategories,
   selectLoading as selectCategoriesLoading,
   selectError as selectCategoriesError,
-} from '../redux/selectors/categorySelectors';
+} from '../../redux/selectors/categorySelectors';
 import {
   selectBrands,
   selectLoading as selectBrandsLoading,
   selectError as selectBrandsError,
-} from '../redux/selectors/brandSelectors';
+} from '../../redux/selectors/brandSelectors';
 
 import { useDispatch, useSelector } from 'react-redux';
-
-// Removed useDropdown hook
-
-const DropdownMenu = ({ items }) => (
-  <div
-    className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-all duration-200 absolute left-0 top-full w-64 bg-white border border-gray-200 rounded shadow-md z-50"
-  >
-    <div className="grid grid-cols-2 gap-4 p-4">
-      {items.map((item, index) => (
-        <Link
-          key={index}
-          to={item.path}
-          className="text-gray-600 hover:bg-blue-50 hover:text-blue-600 text-sm p-2 rounded block text-center"
-        >
-          {item.name}
-        </Link>
-      ))}
-    </div>
-  </div>
-);
+import DropdownMenu from './DropdownMenu';
 
 
 const Nav = ({ openAuthModal }) => {

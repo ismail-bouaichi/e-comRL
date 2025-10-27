@@ -21,6 +21,9 @@
     </head>
     <body class="font-sans antialiased">
         <div class="min-h-screen bg-gray-100 dark:bg-gray-900 flex">
+            @if (session()->has('success') || session()->has('error'))
+            <x-notification />
+        @endif
             <!-- Sidebar -->
             <div class="flex bg-white dark:bg-gray-800 sticky top-0 h-screen overflow-y-auto">
                 <livewire:layout.sidebar/>

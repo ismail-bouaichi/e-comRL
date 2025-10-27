@@ -12,10 +12,22 @@ class Order extends Model
     use HasFactory ;
     use HasMegaphone;
 
+    // Order status constants
+    const STATUS_UNPAID = 'unpaid';
+    const STATUS_PAID = 'paid';
+    const STATUS_ON_PROGRESS = 'onProgress';
+    const STATUS_COMPLETE = 'complete';
+    const STATUS_CANCELLED = 'cancelled';
+
     protected $table = 'orders'; // Name of the orders table
     protected $fillable = [
-        'first_name','last_name', 'email','phone', 'customer_id', 'delivery_worker_id', 'status','is_assigned','session_id','shipping_cost','latitude', 'longitude'
+        'first_name','last_name', 'email','phone', 'customer_id', 'delivery_worker_id', 'status','is_assigned','session_id','shipping_cost','latitude', 'longitude', 'delivery_started_at', 'delivery_completed_at'
 
+    ];
+
+    protected $casts = [
+        'delivery_started_at' => 'datetime',
+        'delivery_completed_at' => 'datetime',
     ];
 
     public function orderDetails()
@@ -30,7 +42,17 @@ class Order extends Model
 
     public function deliveryWorker()
     {
-        return $this->belongsTo(User::class, 'delivery_worker_id');
+        return $this->belongsTo(DeliveryWorker::class, 'delivery_worker_id');
+    }
+
+    public function deliveryLocations()
+    {
+        return $this->hasMany(DeliveryLocation::class);
+    }
+
+    public function latestDeliveryLocation()
+    {
+        return $this->deliveryLocations()->latest('created_at')->first();
     }
     public function calculateTotal()
     {

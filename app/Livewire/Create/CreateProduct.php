@@ -48,7 +48,7 @@ class CreateProduct extends Component
         ]);
 
         foreach ($this->images as $image) {
-            $path = $image->store('/images');
+            $path = $image->store('storage/images');
             Image::create([
                 'product_id' => $product->id,
                 'file_path' => $path,

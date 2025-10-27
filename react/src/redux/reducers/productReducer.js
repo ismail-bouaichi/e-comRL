@@ -13,6 +13,9 @@ import {
   FETCH_FAVORITE_PRODUCT_REQUEST,
   FETCH_FAVORITE_PRODUCT_SUCCESS,
   FETCH_FAVORITE_PRODUCT_FAILURE,
+  FETCH_BESTSELLING_PRODUCTS_FAILURE,
+  FETCH_BESTSELLING_PRODUCTS_SUCCESS,
+  FETCH_BESTSELLING_PRODUCTS_REQUEST,
 } from '../constants/productConstants';
 
 const initialState = {
@@ -24,6 +27,9 @@ const initialState = {
   favorites: [],
   pagination: {},
   error: '',
+  bestSellingProducts: [],
+  bestSellingLoading: false,
+  bestSellingError: null,
 };
 
 const productReducer = (state = initialState, action) => {
@@ -84,6 +90,25 @@ const productReducer = (state = initialState, action) => {
         loading: false,
         error: action.payload,
       };
+      case FETCH_BESTSELLING_PRODUCTS_REQUEST:
+        return {
+          ...state,
+          bestSellingLoading: true,
+          bestSellingError: null
+        };
+      case FETCH_BESTSELLING_PRODUCTS_SUCCESS:
+        return {
+          ...state,
+          bestSellingLoading: false,
+          bestSellingProducts: action.payload,
+          bestSellingError: null
+        };
+      case FETCH_BESTSELLING_PRODUCTS_FAILURE:
+        return {
+          ...state,
+          bestSellingLoading: false,
+          bestSellingError: action.payload
+        };
     default:
       return state;
   }
