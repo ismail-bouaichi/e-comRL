@@ -4,6 +4,7 @@ namespace App\Livewire\Create;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Models\DeliveryWorker;
 use Livewire\Component;
 
 
@@ -18,6 +19,12 @@ class CreateUser extends Component
     public $selectedRole;
     public $roles;
     public $role_id;
+    
+    // Delivery worker specific fields
+    public $phone;
+    public $vehicle_type;
+    public $vehicle_number;
+    public $license_number;
 
    
     public function updatedSelectedRole($value)
@@ -26,28 +33,53 @@ class CreateUser extends Component
 }
     
     public function submit(){
-
-      
-            $this->validate([
-                'name' => 'required|min:3|max:255',
-                'email' => 'required|email|unique:users,email',
-                'password' => 'required|min:6',
-                'password_confirmation' => 'required|same:password',
-                'role_id' => 'required|exists:roles,id',
+        // Get the selected role to check if it's delivery_worker
+        $selectedRole = Role::find($this->role_id);
+        $isDeliveryWorker = $selectedRole && $selectedRole->name === 'delivery_worker';
+        
+        // Base validation
+        $rules = [
+            'name' => 'required|min:3|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|min:6',
+            'password_confirmation' => 'required|same:password',
+            'role_id' => 'required|exists:roles,id',
+        ];
+        
+        // Add delivery worker specific validation
+        if ($isDeliveryWorker) {
+            $rules['phone'] = 'required|string|max:20';
+            $rules['vehicle_type'] = 'required|in:bike,car,motorcycle,van,truck';
+            $rules['vehicle_number'] = 'required|string|max:50';
+            $rules['license_number'] = 'required|string|max:50';
+        }
+        
+        $this->validate($rules);
+    
+        // Create the user
+        $user = User::create([
+            'name' => $this->name,
+            'email' => $this->email,
+            'password' => bcrypt($this->password),
+            'role_id' => $this->role_id
+        ]);
+        
+        // If user is delivery worker, create delivery_worker record
+        if ($isDeliveryWorker) {
+            DeliveryWorker::create([
+                'user_id' => $user->id,
+                'phone' => $this->phone,
+                'vehicle_type' => $this->vehicle_type,
+                'vehicle_number' => $this->vehicle_number,
+                'license_number' => $this->license_number,
+                'status' => 'offline', // Default status
+                'current_order_id' => null,
             ]);
-        
-            User::create([
-                'name' => $this->name,
-                'email' => $this->email,
-                'password' => bcrypt($this->password),
-                'role_id' => $this->role_id
-            ]);
-        
-            $this->reset(['name', 'email', 'password', 'password_confirmation', 'role_id']);
-        
-            session()->flash('success', 'User created successfully!');
-       
-       
+        }
+    
+        $this->reset(['name', 'email', 'password', 'password_confirmation', 'role_id', 'phone', 'vehicle_type', 'vehicle_number', 'license_number']);
+    
+        session()->flash('success', 'User created successfully!');
     }
     
     public function generatePassword() : Void {
@@ -85,8 +117,7 @@ class CreateUser extends Component
         
     }
     public function cancel()  {
-      return  $this->reset(['name', 'email', 'password', 'password_confirmation', 'role_id']);
-
+      return  $this->reset(['name', 'email', 'password', 'password_confirmation', 'role_id', 'phone', 'vehicle_type', 'vehicle_number', 'license_number']);
     }
     public function mount()
     {

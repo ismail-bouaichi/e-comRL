@@ -417,7 +417,7 @@ class EditOrder extends Component
                 'orderData.email' => 'required|email',
                 'orderData.phone' => 'required|string',
                 'orderData.customer_id' => 'required|integer|exists:users,id',
-                'orderData.delivery_worker_id' => 'required|integer|exists:users,id',
+                'orderData.delivery_worker_id' => 'nullable|integer|exists:delivery_workers,id',
             ]);
         } elseif ($step == 2) {
             $this->validate([

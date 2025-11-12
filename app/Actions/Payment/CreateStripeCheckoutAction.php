@@ -5,10 +5,18 @@ namespace App\Actions\Payment;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ShippingZone;
+use App\Actions\Product\CalculateProductDiscountAction;
 use Stripe\StripeClient;
 
 class CreateStripeCheckoutAction
 {
+    protected $discountAction;
+
+    public function __construct(CalculateProductDiscountAction $discountAction)
+    {
+        $this->discountAction = $discountAction;
+    }
+
     public function execute(Order $order, array $products, string $city, string $country)
     {
         $stripe = new StripeClient(config('services.stripe.secret'));
@@ -17,7 +25,8 @@ class CreateStripeCheckoutAction
         $lineItems = [];
         foreach ($products as $item) {
             $product = Product::findOrFail($item['product_id']);
-            $unitPrice = $this->getDiscountedPrice($product, 1);
+            $productWithDiscount = $this->discountAction->execute($product);
+            $unitPrice = $productWithDiscount->discounted_price;
             $lineItems[] = $this->formatLineItem($product, $unitPrice, $item['quantity']);
         }
         
@@ -51,22 +60,6 @@ class CreateStripeCheckoutAction
             'session' => $session,
             'shipping_cost' => $shippingCost,
         ];
-    }
-    
-    private function getDiscountedPrice(Product $product, $quantity)
-    {
-        $discount = $product->currentDiscount();
-        $price = $product->price;
-        
-        if ($discount) {
-            if ($discount->discount_type === 'percentage') {
-                $price -= ($price * ($discount->discount_value / 100));
-            } else {
-                $price -= $discount->discount_value;
-            }
-        }
-        
-        return $price * $quantity;
     }
     
     private function formatLineItem($product, $unitPrice, $quantity)

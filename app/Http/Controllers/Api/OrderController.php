@@ -22,6 +22,8 @@ use App\Actions\Payment\CreateStripeCheckoutAction;
 use App\Actions\Payment\ProcessWebhookAction;
 use App\Actions\Payment\RefundPaymentAction;
 use App\Actions\Payment\VerifyPaymentAction;
+use App\Services\OrderProcessingService;
+use App\Services\PricingService;
 
 
 
@@ -46,9 +48,7 @@ class OrderController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-  
-    
-    public function store(Request $request, CreateStripeCheckoutAction $createCheckout)
+    public function store(Request $request, OrderProcessingService $orderService)
     {
         $validatedData = $request->validate([
             'first_name' => 'required',
@@ -63,139 +63,28 @@ class OrderController extends Controller
             'zip_code' => 'required',
             'city' => 'required',
             'country' => 'required',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
         ]);
-    
-        // Validate stock availability
-        foreach ($validatedData['products'] as $item) {
-            $product = Product::lockForUpdate()->findOrFail($item['product_id']);
-            if ($product->stock_quantity < $item['quantity']) {
-                return response()->json(['error' => 'Insufficient stock for product ' . $product->name], 400);
-            }
-        }
-    
-        // Optional: Try to find an available delivery worker (not required at order creation)
-        $deliveryWorker = DeliveryWorker::where('status', 'available')
-            ->whereNull('current_order_id')
-            ->first();
-    
-        DB::beginTransaction();
+
         try {
-            // Create order first (delivery_worker_id can be null, will be assigned later)
-            $order = Order::create([
-                'first_name' => $validatedData['first_name'],
-                'last_name' => $validatedData['last_name'],
-                'email' => $validatedData['email'],
-                'phone' => $validatedData['phone'],
-                'customer_id' => $validatedData['customer_id'],
-                'delivery_worker_id' => $deliveryWorker ? $deliveryWorker->id : null,
-                'latitude' => $request->latitude,
-                'longitude' => $request->longitude,
-            ]);
-    
-            // Create Stripe checkout session
-            try {
-                $checkoutResult = $createCheckout->execute(
-                    $order,
-                    $validatedData['products'],
-                    $validatedData['city'],
-                    $validatedData['country']
-                );
-            } catch (\Stripe\Exception\ApiErrorException $e) {
-                DB::rollBack();
-                return response()->json(['error' => 'Stripe API error: ' . $e->getMessage()], 500);
-            }
-    
-            // Update order with session and shipping
-            $order->update([
-                'session_id' => $checkoutResult['session']->id,
-                'shipping_cost' => $checkoutResult['shipping_cost'],
-            ]);
-    
-            // Create order details
-            foreach ($validatedData['products'] as $item) {
-                $product = Product::findOrFail($item['product_id']);
-                $discountedPrice = $this->getDiscountedPrice($product, $item['quantity']);
-    
-                OrderDetail::create([
-                    'order_id' => $order->id,
-                    'product_id' => $item['product_id'],
-                    'address' => $validatedData['address'],
-                    'zip_code' => $validatedData['zip_code'],
-                    'city' => $validatedData['city'],
-                    'total_price' => $discountedPrice,
-                    'quantity' => $item['quantity'],
-                ]);
-            }
-    
-            DB::commit();
-    
-            // If a delivery worker was auto-assigned, update their status
-            if ($deliveryWorker) {
-                $deliveryWorker->update([
-                    'status' => 'on_delivery',
-                    'current_order_id' => $order->id,
-                ]);
-            }
-    
-            // Notify admins
-            $admins = User::whereHas('role', function ($query) {
-                $query->where('name', 'admin');
-            })->get();
-    
-            foreach ($admins as $admin) {
-                $notification = new \MBarlow\Megaphone\Types\Important(
-                    'New Order Placed',
-                    'A new order has been placed by ' . $validatedData['first_name'] . ' ' . $validatedData['last_name'] . '.',
-                    'http://127.0.0.1:8000/orders/' . $order->id,
-                );
-                $admin->notify($notification);
-            }
-    
-            // Notify delivery worker if assigned
-            if ($deliveryWorker && $deliveryWorker->user) {
-                $workerNotification = new \MBarlow\Megaphone\Types\Important(
-                    'New Delivery Assignment',
-                    'You have been assigned to deliver order #' . $order->id,
-                    'http://127.0.0.1:8000/orders/' . $order->id,
-                );
-                $deliveryWorker->user->notify($workerNotification);
-            }
-    
-            // Generate and send QR code email
-            $qrCodeData = "order/{$order->id}/customer/{$order->first_name} {$order->last_name}/date/{$order->created_at}";
-            $qrCode = QrCode::size(300)->generate($qrCodeData);
-            $qrCodeBase64 = base64_encode($qrCode);
-            
-            Mail::to($validatedData['email'])->send(new OrderSuccessEmail([
-                'name' => $validatedData['first_name'],
-                'qrCode' => $qrCodeBase64
-            ]));
-    
-            return response()->json([
-                'message' => 'Your Order has been initiated. Complete payment to confirm.',
-                'stripe_url' => $checkoutResult['session']->url,
-                'session_id' => $checkoutResult['session']->id
-            ]);
+            $result = $orderService->processOrder($validatedData);
+            return response()->json($result, 201);
         } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => 'Database error: ' . $e->getMessage()], 500);
+            Log::error('Order creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
     
-    public function getDiscountedPrice(Product $product, $quantity)
+    public function getDiscountedPrice(Product $product, $quantity, PricingService $pricingService)
     {
-        $discount = $product->currentDiscount();
-        $price = $product->price;
-    
-        if ($discount) {
-            if ($discount->discount_type === 'percentage') {
-                $price -= ($price * ($discount->discount_value / 100));
-            } else {
-                $price -= $discount->discount_value;
-            }
-        }
-    
-        return $price * $quantity;
+        return $pricingService->getDiscountedPrice($product, $quantity);
     }
 
     public function calculateShipping(Request $request)
