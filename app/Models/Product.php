@@ -44,6 +44,33 @@ class Product extends Model
     {
         return $this->hasMany(OrderDetail::class);
     }
+
+    public function orderItems()
+    {
+        return $this->hasMany(OrderItem::class);
+    }
+
+    public function warehouses()
+    {
+        return $this->belongsToMany(Warehouse::class, 'warehouse_products')
+            ->withPivot('quantity', 'min_stock_threshold', 'shelf_location')
+            ->withTimestamps();
+    }
+
+    public function warehouseProducts()
+    {
+        return $this->hasMany(WarehouseProduct::class);
+    }
+
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class);
+    }
+
+    public function purchaseOrderItems()
+    {
+        return $this->hasMany(PurchaseOrderItem::class);
+    }
    
     public function discounts()
     {

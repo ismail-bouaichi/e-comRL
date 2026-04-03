@@ -106,4 +106,34 @@ class User extends Authenticatable
             $query->where('name', $roleName);
         })->whereBetween('created_at', [$startDate, $endDate]);
     }
+
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class, 'performed_by');
+    }
+
+    public function initiatedStockTransfers()
+    {
+        return $this->hasMany(StockTransfer::class, 'initiated_by');
+    }
+
+    public function purchaseOrders()
+    {
+        return $this->hasMany(PurchaseOrder::class, 'ordered_by');
+    }
+
+    public function journalEntries()
+    {
+        return $this->hasMany(JournalEntry::class, 'created_by');
+    }
+
+    public function approvedExpenses()
+    {
+        return $this->hasMany(Expense::class, 'approved_by');
+    }
+
+    public function createdExpenses()
+    {
+        return $this->hasMany(Expense::class, 'created_by');
+    }
 }
